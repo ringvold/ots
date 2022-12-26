@@ -71,7 +71,7 @@ defmodule Ots.Layouts do
       <script src="https://cdn.jsdelivr.net/npm/phoenix@1.6.10/priv/static/phoenix.min.js">
       </script>
       <script
-      src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.17.10/priv/static/phoenix_live_view.min.js"
+      src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.18.3/priv/static/phoenix_live_view.min.js"
       >
       </script>
       <script>
@@ -98,6 +98,27 @@ defmodule Ots.Layouts do
   end
 end
 
+defmodule Ots.Store do
+  @table :secrets
+
+  def insert(encrypted_bytes, expires_at, cipher) do
+    id = {
+      encrypted_bytes,
+      expires_at,
+      cipher
+    }
+      |> :erlang.phash2()
+      |> Integer.to_string()
+      |> Base.encode64()
+    :ets.insert(@table, {id, encrypted_bytes, expires_at, cipher})
+    id
+  end
+
+  def read(id) do
+    :ets.lookup(@table, id)
+  end
+end
+
 defmodule Ots.ApiController do
   use Phoenix.Controller,
     namespace: Ots,
@@ -105,33 +126,40 @@ defmodule Ots.ApiController do
 
   import Plug.Conn
   import Jason.Helpers
+  alias Ots.Store
 
   def index(conn, params) do
-    encryptedBytes = params["encryptedBytes"]
-
+    encrypted_bytes = params["encryptedBytes"]
+    cipher = parse_cipher(params["cipher"]) |> dbg
     expires_at =
       DateTime.now!("Etc/UTC")
       |> DateTime.add(params["expiresIn"], :second)
       |> DateTime.to_unix()
 
-    secret = {
-      encryptedBytes,
-      expires_at
-    }
-
-    id = :erlang.phash2(secret) |> Integer.to_string() |> Base.encode64()
-    :ets.insert(:secrets, {id, encryptedBytes, expires_at})
+    id = Store.insert(encrypted_bytes, expires_at, cipher)
 
     conn
     |> put_status(200)
     |> put_resp_header("X-View-Url", "#{Application.get_env(:ots, :url)}/view/#{id}")
     |> json(json_map(id: id, expiresAt: expires_at))
   end
+
+  def parse_cipher(cipher_param) do
+    case cipher_param do
+      "chapoly" -> :chacha20_poly1305
+      "chacha20_poly1305" -> :chacha20_poly1305
+      "aes_256_gcm" -> :aes_256_gcm
+      _ -> :aes_256_gcm # Default to AES GCM to support ots cli
+    end
+  end
 end
 
 defmodule Ots.CreateLive do
   use Phoenix.LiveView
   alias Ots.Encryption
+  alias Ots.Store
+
+  @cipher :chacha20_poly1305
 
   def mount(_params, _session, socket) do
     {:ok, assign(socket, url: nil, loading: false)}
@@ -176,13 +204,7 @@ This url will only work one time and expire by XXXX if not used.
           |> DateTime.add(2, :hour)
           |> DateTime.to_unix()
 
-      secret = {
-        encrypted,
-        expires_at
-      }
-
-      id = :erlang.phash2(secret) |> Integer.to_string() |> Base.encode64()
-      :ets.insert(:secrets, {id, encrypted, expires_at})
+      id = Store.insert(encrypted, expires_at, @cipher)
       {:noreply, assign(socket, loading: false, url: one_time_url(id, key))}
     else
       {:noreply, socket}
@@ -201,16 +223,19 @@ end
 defmodule Ots.ViewLive do
   use Phoenix.LiveView
   alias Ots.Encryption
+  alias Ots.Store
+
+  @cipher :chacha20_poly1305
 
   def mount(%{"id" => id}, _session, socket) do
-    case :ets.lookup(:secrets, id) do
+    case Store.read(id) do
       [] ->
-        {:ok, assign(socket, id: nil, encrypted_secret: nil, decrypted_secret: nil)}
+        {:ok, assign(socket, id: nil, encrypted_secret: nil, decrypted_secret: nil, chiper: nil)}
 
       rest ->
-        {id, encrypted, _} = hd(rest)
+        {id, encrypted, _expires_at, cipher} = hd(rest)
         if connected?(socket), do: :ets.delete(:secrets, id)
-        {:ok, assign(socket, id: id, encrypted_secret: encrypted, decrypted_secret: nil)}
+        {:ok, assign(socket, id: id, encrypted_secret: encrypted, decrypted_secret: nil, cipher: cipher)}
     end
   end
 
@@ -227,7 +252,7 @@ defmodule Ots.ViewLive do
   def handle_event("decrypt", %{"key" => key}, socket) do
     if not blank?(key) and not blank?(socket.assigns.encrypted_secret) do
       key = Base.url_decode64!(key)
-      decrypted = Encryption.decrypt(socket.assigns.encrypted_secret, key)
+      decrypted = Encryption.decrypt(socket.assigns.encrypted_secret, key, socket.assigns.cipher)
       {:noreply, assign(socket, decrypted_secret: decrypted)}
     else
       {:noreply, socket}
@@ -242,22 +267,22 @@ defmodule Ots.Encryption do
   @nonce_size 12
   @tag_size 16
 
-  def encrypt(val) do
+  def encrypt(val, cipher \\ :chacha20_poly1305) do
     nonce = :crypto.strong_rand_bytes(@nonce_size)
     key = :crypto.strong_rand_bytes(32)
 
     {ciphertext, tag} =
-      :crypto.crypto_one_time_aead(:aes_256_gcm, key, nonce, to_string(val), @aad, @tag_size, true)
+      :crypto.crypto_one_time_aead(cipher, key, nonce, to_string(val), @aad, @tag_size, true)
 
     {Base.encode64(nonce <> ciphertext <> tag), key}
   end
 
-  def decrypt(ciphertext, key) do
+  def decrypt(ciphertext, key, cipher \\ :chacha20_poly1305) do
     <<nonce::binary-@nonce_size, ciphertext::binary>> = decode(ciphertext)
     tag = binary_slice(ciphertext, -@tag_size..-1)
     ciphertext_length = byte_size(ciphertext) - @tag_size
     ciphertext = binary_slice(ciphertext, 0, ciphertext_length)
-    :crypto.crypto_one_time_aead(:aes_256_gcm, key, nonce, ciphertext, @aad, tag, false)
+    :crypto.crypto_one_time_aead(cipher, key, nonce, ciphertext, @aad, tag, false)
   end
 
   def decode(key) do
