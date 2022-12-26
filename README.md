@@ -1,9 +1,16 @@
 # One-time secret backend and web client
 
-Inspired by https://github.com/sniptt-official/ots but is not tied to AWS. 
+Inspired by https://github.com/sniptt-official/ots but is not tied to AWS.
 Deployable to any place that can run a container. See instructions below for setting up on fly.io.
+Also supports ChaCha20-Poly1305 (ChaPoly) cipher.
 
-## Ots cli
+Note: For now encryption for the web client happens on the server. The encryption will be moved to the browser.
+
+## Accompanying cli
+
+Cli that uses ChaPoly cipher: https://github.com/ringvold/neots
+
+## Ots cli compatibility
 
 Compatible with the [ots cli](https://github.com/sniptt-official/ots): `brew install ots`. 
 
@@ -17,8 +24,6 @@ or test it out locally
 ```yaml
 apiKey: https://localhost:400/view
 ```
-
-Note: For now encryption for the web client happens on the server. The encryption will be moved to the browser.
 
 ## Deploy to fly.io
 
