@@ -230,12 +230,12 @@ defmodule Ots.ViewLive do
   def mount(%{"id" => id}, _session, socket) do
     case Store.read(id) do
       [] ->
-        {:ok, assign(socket, id: nil, encrypted_secret: nil, decrypted_secret: nil, chiper: nil)}
+        {:ok, assign(socket, id: nil, encrypted_secret: nil, decrypted_secret: nil, chiper: nil, loading: false)}
 
       rest ->
         {id, encrypted, _expires_at, cipher} = hd(rest)
         if connected?(socket), do: :ets.delete(:secrets, id)
-        {:ok, assign(socket, id: id, encrypted_secret: encrypted, decrypted_secret: nil, cipher: cipher)}
+        {:ok, assign(socket, id: id, encrypted_secret: encrypted, decrypted_secret: nil, cipher: cipher, loading: true)}
     end
   end
 
@@ -244,7 +244,17 @@ defmodule Ots.ViewLive do
     <h1 class="text-6xl mb-5">One-time secrets</h1>
     <p class="text-lg mb-5">Share end-to-end encrypted secrets with others via a one-time URL</p>
     <div id="secret" class="text-2xl" phx-hook="Decrypt">
-      <span>Secret:</span> <span class="font-bold"><%= @decrypted_secret %></span>
+      <%= if @loading do %>
+        Loading..
+      <% end %>
+      <span :if={@decrypted_secret} >Secret:</span> <span class="font-bold"><%= @decrypted_secret %></span>
+      <%= unless @encrypted_secret do %>
+        <div>This one-time secret cannot be viewed</div>
+
+        <div>This secret may have expired or has been read already</div>
+
+        <div>Reminder: Once secrets have been read once, they are permanently destroyed 💥</div>
+      <% end %>
     </div>
     """
   end
@@ -253,9 +263,9 @@ defmodule Ots.ViewLive do
     if not blank?(key) and not blank?(socket.assigns.encrypted_secret) do
       key = Base.url_decode64!(key)
       decrypted = Encryption.decrypt(socket.assigns.encrypted_secret, key, socket.assigns.cipher)
-      {:noreply, assign(socket, decrypted_secret: decrypted)}
+      {:noreply, assign(socket, decrypted_secret: decrypted, loading: false)}
     else
-      {:noreply, socket}
+      {:noreply, assign(socket, loading: false)}
     end
   end
 
