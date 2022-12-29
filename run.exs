@@ -111,6 +111,185 @@ defmodule Ots.Layouts do
       >
       </script>
       <script>
+
+
+
+        /**
+         * Converts an ArrayBuffer directly to base64, without any intermediate 'convert to string then
+         * use window.btoa' step. According to my tests, this appears to be a faster approach:
+         * http://jsperf.com/encoding-xhr-image-data/5
+         *
+         *
+         * MIT LICENSE
+         * Copyright 2011 Jon Leighton
+         * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+         * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+         * SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+        */
+        function _arrayBufferToBase64(arrayBuffer) {
+          var base64    = ''
+          var encodings = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+          var bytes         = new Uint8Array(arrayBuffer)
+          var byteLength    = bytes.byteLength
+          var byteRemainder = byteLength % 3
+          var mainLength    = byteLength - byteRemainder
+
+          var a, b, c, d
+          var chunk
+
+          // Main loop deals with bytes in chunks of 3
+          for (var i = 0; i < mainLength; i = i + 3) {
+            // Combine the three bytes into a single integer
+            chunk = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2]
+
+            // Use bitmasks to extract 6-bit segments from the triplet
+            a = (chunk & 16515072) >> 18 // 16515072 = (2^6 - 1) << 18
+            b = (chunk & 258048)   >> 12 // 258048   = (2^6 - 1) << 12
+            c = (chunk & 4032)     >>  6 // 4032     = (2^6 - 1) << 6
+            d = chunk & 63               // 63       = 2^6 - 1
+
+            // Convert the raw binary segments to the appropriate ASCII encoding
+            base64 += encodings[a] + encodings[b] + encodings[c] + encodings[d]
+          }
+
+          // Deal with the remaining bytes and padding
+          if (byteRemainder == 1) {
+            chunk = bytes[mainLength]
+
+            a = (chunk & 252) >> 2 // 252 = (2^6 - 1) << 2
+
+            // Set the 4 least significant bits to zero
+            b = (chunk & 3)   << 4 // 3   = 2^2 - 1
+
+            base64 += encodings[a] + encodings[b] + '=='
+          } else if (byteRemainder == 2) {
+            chunk = (bytes[mainLength] << 8) | bytes[mainLength + 1]
+
+            a = (chunk & 64512) >> 10 // 64512 = (2^6 - 1) << 10
+            b = (chunk & 1008)  >>  4 // 1008  = (2^6 - 1) << 4
+
+            // Set the 2 least significant bits to zero
+            c = (chunk & 15)    <<  2 // 15    = 2^4 - 1
+
+            base64 += encodings[a] + encodings[b] + encodings[c] + '='
+          }
+
+          return base64
+        }
+
+
+        function _base64ToArrayBuffer(base64) {
+            var binary_string = window.atob(base64);
+            var len = binary_string.length;
+            var bytes = new Uint8Array(len);
+            for (var i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        /**
+         * Converts a string into a Uint8Array containing UTF-8 encoded text.
+         */
+        function getBytes(string) {
+          const textEncoder = new TextEncoder()
+          const encoded = textEncoder.encode(string)
+
+          return encoded
+        }
+
+        /**
+         * Concatinate a list of ArrayBufferViews
+         */
+        function _concat(views) {
+            let length = 0
+            for (const v of views){
+              length += v.byteLength
+            }
+
+            let buf = new Uint8Array(length)
+            let offset = 0
+            for (const v of views) {
+                const uint8view = new Uint8Array(v.buffer, v.byteOffset, v.byteLength)
+                buf.set(uint8view, offset)
+                offset += uint8view.byteLength
+            }
+
+            return buf
+        }
+
+        function utf8_to_b64(str) {
+          return window.btoa(unescape(encodeURIComponent(str)));
+        }
+
+        function b64_to_utf8(str) {
+          return decodeURIComponent(escape(window.atob(str)));
+        }
+
+        async function importSecretKey(rawKey) {
+          return window.crypto.subtle.importKey("raw", rawKey, "AES-GCM", true, [
+            "encrypt",
+            "decrypt",
+          ])
+        }
+
+        function getMessageEncoding() {
+          const messageBox = document.querySelector(".aes-gcm #message");
+          const message = messageBox.value;
+          const enc = new TextEncoder();
+          return enc.encode(message);
+        }
+
+        /**
+         * Encrypts secret message using AES in Galois/Counter Mode.
+         *
+         * See https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/encrypt#aes-gcm.
+         */
+        async function encryptMessage(secret) {
+          const rawKey = window.crypto.getRandomValues(new Uint8Array(16))
+          const secretKey = await importSecretKey(rawKey)
+          const encoded = getBytes(secret)
+          const iv = window.crypto.getRandomValues(new Uint8Array(12))
+
+          const ciphertext = await window.crypto.subtle.encrypt(
+            {
+              name: "AES-GCM",
+              iv,
+            },
+            secretKey,
+            encoded,
+          )
+
+          const sealedSecret = _concat([iv, ciphertext])
+          const encryptedBytes = _arrayBufferToBase64(sealedSecret)
+          const base64UrlKey = utf8_to_b64(rawKey)
+
+          return { key: base64UrlKey, encryptedBytes }
+        }
+
+        async function decryptMessage(key, encryptedBytes) {
+          const rawKey = _base64ToArrayBuffer(b64_to_utf(key))
+          const secretKey = await importSecretKey(rawKey)
+          const sealedSecret = _base64ToArrayBuffer(encryptedBytes)
+          const iv = sealedSecret.slice(0, ivLength)
+          const ciphertext = sealedSecret.slice(ivLength, sealedSecret.length)
+
+          const decrypted = await window.crypto.subtle.decrypt(
+            {
+              name: "AES-GCM",
+              iv,
+            },
+            secretKey,
+            ciphertext,
+          )
+
+          const textDecoder = new TextDecoder()
+          const decryptedMessage = textDecoder.decode(decrypted)
+
+           return decryptedMessage
+        }
+
         let Hooks = {}
         Hooks.Decrypt = {
           mounted() {
@@ -118,6 +297,23 @@ defmodule Ots.Layouts do
               console.log("key",window.location.hash)
               this.pushEvent("decrypt", {key: window.location.hash.replace(/^\#/, "")})
             }
+          }
+        }
+        Hooks.Encrypt = {
+          message() { return this.el.value },
+          mounted() {
+            const liveView = this
+            this.liveViewEncrypt = async function(e) {
+              const encryptedMessage = await encryptMessage(liveView.message())
+              liveView.pushEvent("encrypted", {encryptedBytes: encryptedMessage.encryptedBytes})
+            }
+            window.addEventListener('liveview-encrypt',
+              this.liveViewEncrypt)
+
+          },
+          destroyed() {
+            window.removeEventListener('liveview-encrypt',
+              this.liveViewPushEvent)
           }
         }
         let liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {hooks: Hooks})
@@ -136,6 +332,7 @@ end
 
 defmodule Ots.CreateLive do
   use Phoenix.LiveView
+  alias Phoenix.LiveView.JS
   alias Ots.Encryption
   alias Ots.Store
 
@@ -149,7 +346,7 @@ defmodule Ots.CreateLive do
     ~H"""
     <h1 class="text-6xl mb-5 font-bold dark:text-slate-200">One-time secrets</h1>
     <h1 class="text-3xl mb-5 font-bold dark:text-slate-200">Share end-to-end encrypted secrets with others via a one-time URL</h1>
-    <form phx-submit="encrypt">
+    <form>
       <%= if @url do %>
       <div class="bg-slate-800 dark:bg-slate-700
         break-all
@@ -163,7 +360,8 @@ defmodule Ots.CreateLive do
         <div class="mb-5">This url will only work one time and expire approximately <%= Timex.format!(@expires_at, "{D}.{M}.{YYYY} {h24}:{m}") %> if not used.</div>
       </div>
       <% else %>
-        <textarea name="secret" class="bg-slate-800 dark:bg-slate-700
+        <textarea id="message" name="secret" phx-hook="Encrypt"
+          class="bg-slate-800 dark:bg-slate-700
             p-5 mb-1 w-full h-60
             rounded shadow
             text-lg text-slate-100 dark:text-slate-200
@@ -176,10 +374,10 @@ defmodule Ots.CreateLive do
           <input id="expirationRange" name="expiration"
             class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
             type="range" min="1" max="96" value={@expiration} phx-change="expiration_change">
-
         </div>
         <button  class="bg-cyan-400 dark:bg-cyan-800 rounded shadow hover:shadow-lg w-full p-3 font-bold text-2xl disabled:bg-cyan-200 disabled:text-slate-500"
-          type="submit"
+          type="button"
+          phx-click={JS.dispatch("liveview-encrypt")}
           phx-disable-with="Encrypting..">
           Encrypt and create one-time URL
         </button>
@@ -193,8 +391,27 @@ defmodule Ots.CreateLive do
     {:noreply, assign(socket, loading: true)}
   end
 
+  def handle_event("encrypted", %{"encryptedBytes" => encryptedBytes}, socket) do
+    send(self(), {:store_encrypted, encryptedBytes})
+    {:noreply, assign(socket, loading: true)}
+  end
+
   def handle_event("expiration_change", %{"expiration" => expiration}, socket) do
-    {:noreply, assign(socket, expiration: expiration)}
+    {:noreply, assign(socket, expiration: String.to_integer(expiration))}
+  end
+
+  def handle_info({:store_encrypted, encryptedBytes}, socket) do
+    if not blank?(encryptedBytes) do
+      expires_at =
+        DateTime.now!("Etc/UTC")
+          |> DateTime.add(socket.assigns.expiration, :hour)
+
+
+      id = Store.insert(encryptedBytes, expires_at |> DateTime.to_unix(), @default_cipher)
+      {:noreply, assign(socket, loading: false, url: one_time_url(id, "key_placeholder"), expires_at: expires_at)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:encrypt, secret}, socket) do
