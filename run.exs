@@ -8,16 +8,16 @@ host =
     "localhost"
   end
 
-url =
+Application.put_env(:ots, :url,
   if app = System.get_env("FLY_APP_NAME") do
     "https://" <> app <> ".fly.dev"
   else
     "http://localhost:4000"
   end
+)
 
 Application.put_env(:phoenix, :json_library, Jason)
 
-Application.put_env(:ots, :url, url)
 
 Application.put_env(:ots, Ots.Endpoint,
   url: [host: host],
@@ -35,7 +35,8 @@ Mix.install([
   {:plug_cowboy, "~> 2.5"},
   {:jason, "~> 1.0"},
   {:phoenix, "~> 1.6.10"},
-  {:phoenix_live_view, "~> 0.18.3"}
+  {:phoenix_live_view, "~> 0.18.3"},
+  {:timex, "~> 3.7"},
 ])
 
 :ets.new(:secrets, [:set, :public, :named_table])
@@ -53,69 +54,6 @@ defmodule Ots.ErrorJSON do
 
   def render(template, _assigns, _) do
     %{errors: %{detail: Phoenix.Controller.status_message_from_template(template)}}
-  end
-end
-
-defmodule Ots.Layouts do
-  use Phoenix.Component
-
-  def render("root.html", assigns) do
-    ~H"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title></title>
-      <script src="https://cdn.tailwindcss.com"></script>
-      <script src="https://cdn.jsdelivr.net/npm/phoenix@1.6.10/priv/static/phoenix.min.js">
-      </script>
-      <script
-      src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.18.3/priv/static/phoenix_live_view.min.js"
-      >
-      </script>
-      <script>
-        let Hooks = {}
-        Hooks.Decrypt = {
-          mounted() {
-            if(window.location.hash) {
-              console.log("key",window.location.hash)
-              this.pushEvent("decrypt", {key: window.location.hash.replace(/^\#/, "")})
-            }
-          }
-        }
-        let liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {hooks: Hooks})
-        liveSocket.connect()
-      </script>
-    </head>
-    <body>
-      <div class="container mx-auto px-4 text-center w-4/5 pt-10" >
-        <%= @inner_content %>
-      </div>
-    </body>
-    </html>
-    """
-  end
-end
-
-defmodule Ots.Store do
-  @table :secrets
-
-  def insert(encrypted_bytes, expires_at, cipher) do
-    id = {
-      encrypted_bytes,
-      expires_at,
-      cipher
-    }
-      |> :erlang.phash2()
-      |> Integer.to_string()
-      |> Base.encode64()
-    :ets.insert(@table, {id, encrypted_bytes, expires_at, cipher})
-    id
-  end
-
-  def read(id) do
-    :ets.lookup(@table, id)
   end
 end
 
@@ -154,6 +92,48 @@ defmodule Ots.ApiController do
   end
 end
 
+defmodule Ots.Layouts do
+  use Phoenix.Component
+
+  def render("root.html", assigns) do
+    ~H"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title></title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <script src="https://cdn.jsdelivr.net/npm/phoenix@1.6.10/priv/static/phoenix.min.js">
+      </script>
+      <script
+      src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.18.3/priv/static/phoenix_live_view.min.js"
+      >
+      </script>
+      <script>
+        let Hooks = {}
+        Hooks.Decrypt = {
+          mounted() {
+            if(window.location.hash) {
+              console.log("key",window.location.hash)
+              this.pushEvent("decrypt", {key: window.location.hash.replace(/^\#/, "")})
+            }
+          }
+        }
+        let liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {hooks: Hooks})
+        liveSocket.connect()
+      </script>
+    </head>
+    <body class="dark:bg-slate-800 dark:text-slate-200">
+      <div class="container mx-auto px-4 text-center w-4/5 pt-10" >
+        <%= @inner_content %>
+      </div>
+    </body>
+    </html>
+    """
+  end
+end
+
 defmodule Ots.CreateLive do
   use Phoenix.LiveView
   alias Ots.Encryption
@@ -162,25 +142,43 @@ defmodule Ots.CreateLive do
   @cipher :chacha20_poly1305
 
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, url: nil, loading: false)}
+    {:ok, assign(socket, url: nil, loading: false, expiration: 2)}
   end
 
   def render(assigns) do
     ~H"""
-    <h1 class="text-6xl mb-5 font-bold">One-time secrets</h1>
-    <h1 class="text-3xl mb-5 font-bold">Share end-to-end encrypted secrets with others via a one-time URL</h1>
+    <h1 class="text-6xl mb-5 font-bold dark:text-slate-200">One-time secrets</h1>
+    <h1 class="text-3xl mb-5 font-bold dark:text-slate-200">Share end-to-end encrypted secrets with others via a one-time URL</h1>
     <form phx-submit="encrypt">
-      <textarea name="secret" class="bg-slate-800 p-5 mb-1 w-full h-60 border rounded shadow text-slate-100 placeholder:italic placeholder:text-slate-400"
-        spellcheck="false"
-        placeholder="→ Type or paste what you want to securely share here..."
-      ><%= if @url do %>This is your one-time url:
+      <%= if @url do %>
+      <div class="bg-slate-800 dark:bg-slate-700
+        break-all
+        p-5 mb-1 w-full h-60
+        rounded
+        text-left text-slate-100 text-lg dark:text-slate-200">
+        <div class="mb-5">This is your one-time url:</div>
 
-<%= @url %>
+        <div class="mb-5 font-bold"><%= @url %></div>
 
-This url will only work one time and expire by XXXX if not used.
-<% end %></textarea>
-      <%= unless @url do %>
-        <button  class="bg-cyan-400 rounded shadow hover:shadow-lg w-full p-3 font-bold text-2xl disabled:bg-cyan-200 disabled:text-slate-500"
+        <div class="mb-5">This url will only work one time and expire approximately <%= Timex.format!(@expires_at, "{D}.{M}.{YYYY} {h24}:{m}") %> if not used.</div>
+      </div>
+      <% else %>
+        <textarea name="secret" class="bg-slate-800 dark:bg-slate-700
+            p-5 mb-1 w-full h-60
+            rounded shadow
+            text-lg text-slate-100 dark:text-slate-200
+            placeholder:italic placeholder:text-slate-400"
+          spellcheck="false"
+          placeholder="→ Type or paste what you want to securely share here..."
+        ></textarea>
+        <div class="m-5">
+          <label for="default-range" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Secret expiration in <%= @expiration %> hours</label>
+          <input id="expirationRange" name="expiration"
+            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+            type="range" min="1" max="96" value={@expiration} phx-change="expiration_change">
+
+        </div>
+        <button  class="bg-cyan-400 dark:bg-cyan-800 rounded shadow hover:shadow-lg w-full p-3 font-bold text-2xl disabled:bg-cyan-200 disabled:text-slate-500"
           type="submit"
           phx-disable-with="Encrypting..">
           Encrypt and create one-time URL
@@ -191,9 +189,12 @@ This url will only work one time and expire by XXXX if not used.
   end
 
   def handle_event("encrypt", %{"secret" => secret}, socket) do
-    # Process.sleep 2000
     send(self(), {:encrypt, secret})
     {:noreply, assign(socket, loading: true)}
+  end
+
+  def handle_event("expiration_change", %{"expiration" => expiration}, socket) do
+    {:noreply, assign(socket, expiration: expiration)}
   end
 
   def handle_info({:encrypt, secret}, socket) do
@@ -201,11 +202,11 @@ This url will only work one time and expire by XXXX if not used.
       {encrypted, key} = Encryption.encrypt(secret)
       expires_at =
         DateTime.now!("Etc/UTC")
-          |> DateTime.add(2, :hour)
-          |> DateTime.to_unix()
+          |> DateTime.add(socket.assigns.expiration, :hour)
 
-      id = Store.insert(encrypted, expires_at, @cipher)
-      {:noreply, assign(socket, loading: false, url: one_time_url(id, key))}
+
+      id = Store.insert(encrypted, expires_at |> DateTime.to_unix(), @cipher)
+      {:noreply, assign(socket, loading: false, url: one_time_url(id, key), expires_at: expires_at)}
     else
       {:noreply, socket}
     end
@@ -247,13 +248,21 @@ defmodule Ots.ViewLive do
       <%= if @loading do %>
         Loading..
       <% end %>
-      <span :if={@decrypted_secret} >Secret:</span> <span class="font-bold"><%= @decrypted_secret %></span>
-      <%= unless @encrypted_secret do %>
-        <div>This one-time secret cannot be viewed</div>
+      <%= if @encrypted_secret do %>
+        <h2  class="mb-3">Secret:</h2>
+        <textarea name="secret" class="bg-slate-800 dark:bg-slate-700
+            p-5 mb-1 w-full h-60
+            rounded shadow
+            font-bold
+            text-lg text-slate-100 dark:text-slate-200"
+          spellcheck="false" disabled
+        ><%= @decrypted_secret %></textarea>
+      <% else %>
+        <div class="mb-5">This one-time secret cannot be viewed</div>
 
-        <div>This secret may have expired or has been read already</div>
+        <div class="mb-5">This secret may have expired or has been read already</div>
 
-        <div>Reminder: Once secrets have been read once, they are permanently destroyed 💥</div>
+        <div class="mb-5">Reminder: Once secrets have been read once, they are permanently destroyed 💥</div>
       <% end %>
     </div>
     """
@@ -270,6 +279,27 @@ defmodule Ots.ViewLive do
   end
 
   def blank?(val), do: is_nil(val) or val == ""
+end
+
+defmodule Ots.Store do
+  @table :secrets
+
+  def insert(encrypted_bytes, expires_at, cipher) do
+    id = {
+      encrypted_bytes,
+      expires_at,
+      cipher
+    }
+      |> :erlang.phash2()
+      |> Integer.to_string()
+      |> Base.encode64()
+    :ets.insert(@table, {id, encrypted_bytes, expires_at, cipher})
+    id
+  end
+
+  def read(id) do
+    :ets.lookup(@table, id)
+  end
 end
 
 defmodule Ots.Encryption do
@@ -317,7 +347,7 @@ defmodule Ots.ExpirationChecker do
     IO.puts("Starting expiry check...")
 
     :ets.foldl(
-      fn {id, _, expire}, _acc ->
+      fn {id, _, expire, _cipher}, _acc ->
         now = DateTime.now!("Etc/UTC") |> DateTime.to_unix()
 
         if now > expire do
