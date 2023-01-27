@@ -139,7 +139,7 @@ defmodule Ots.CreateLive do
   alias Ots.Encryption
   alias Ots.Store
 
-  @cipher :chacha20_poly1305
+  @default_cipher :chacha20_poly1305
 
   def mount(_params, _session, socket) do
     {:ok, assign(socket, url: nil, loading: false, expiration: 2)}
@@ -205,7 +205,7 @@ defmodule Ots.CreateLive do
           |> DateTime.add(socket.assigns.expiration, :hour)
 
 
-      id = Store.insert(encrypted, expires_at |> DateTime.to_unix(), @cipher)
+      id = Store.insert(encrypted, expires_at |> DateTime.to_unix(), @default_cipher)
       {:noreply, assign(socket, loading: false, url: one_time_url(id, key), expires_at: expires_at)}
     else
       {:noreply, socket}
@@ -225,8 +225,6 @@ defmodule Ots.ViewLive do
   use Phoenix.LiveView
   alias Ots.Encryption
   alias Ots.Store
-
-  @cipher :chacha20_poly1305
 
   def mount(%{"id" => id}, _session, socket) do
     case Store.read(id) do
@@ -307,7 +305,7 @@ defmodule Ots.Encryption do
   @nonce_size 12
   @tag_size 16
 
-  def encrypt(val, cipher \\ :chacha20_poly1305) do
+  def encrypt(val, cipher \\ :aes_256_gcm) do
     nonce = :crypto.strong_rand_bytes(@nonce_size)
     key = :crypto.strong_rand_bytes(32)
 
@@ -317,7 +315,7 @@ defmodule Ots.Encryption do
     {Base.encode64(nonce <> ciphertext <> tag), key}
   end
 
-  def decrypt(ciphertext, key, cipher \\ :chacha20_poly1305) do
+  def decrypt(ciphertext, key, cipher \\ :aes_256_gcm) do
     <<nonce::binary-@nonce_size, ciphertext::binary>> = decode(ciphertext)
     tag = binary_slice(ciphertext, -@tag_size..-1)
     ciphertext_length = byte_size(ciphertext) - @tag_size
