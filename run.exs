@@ -68,7 +68,7 @@ defmodule Ots.ApiController do
 
   def index(conn, params) do
     encrypted_bytes = params["encryptedBytes"]
-    cipher = parse_cipher(params["cipher"]) |> dbg
+    cipher = parse_cipher(params["cipher"])
     expires_at =
       DateTime.now!("Etc/UTC")
       |> DateTime.add(params["expiresIn"], :second)
