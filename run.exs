@@ -8,7 +8,9 @@ host =
     "localhost"
   end
 
-Application.put_env(:ots, :url,
+Application.put_env(
+  :ots,
+  :url,
   if app = System.get_env("FLY_APP_NAME") do
     "https://" <> app <> ".fly.dev"
   else
@@ -17,7 +19,6 @@ Application.put_env(:ots, :url,
 )
 
 Application.put_env(:phoenix, :json_library, Jason)
-
 
 Application.put_env(:ots, Ots.Endpoint,
   url: [host: host],
@@ -36,7 +37,7 @@ Mix.install([
   {:jason, "~> 1.0"},
   {:phoenix, "~> 1.6.10"},
   {:phoenix_live_view, "~> 0.18.3"},
-  {:timex, "~> 3.7"},
+  {:timex, "~> 3.7"}
 ])
 
 :ets.new(:secrets, [:set, :public, :named_table])
@@ -69,6 +70,7 @@ defmodule Ots.ApiController do
   def index(conn, params) do
     encrypted_bytes = params["encryptedBytes"]
     cipher = parse_cipher(params["cipher"])
+
     expires_at =
       DateTime.now!("Etc/UTC")
       |> DateTime.add(params["expiresIn"], :second)
@@ -87,7 +89,9 @@ defmodule Ots.ApiController do
       "chapoly" -> :chacha20_poly1305
       "chacha20_poly1305" -> :chacha20_poly1305
       "aes_256_gcm" -> :aes_256_gcm
-      _ -> :aes_256_gcm # Default to AES GCM to support ots cli
+      "aes_gcm" -> :aes_256_gcm
+      # Default to AES GCM to support ots cli
+      _ -> :aes_256_gcm
     end
   end
 end
@@ -104,24 +108,276 @@ defmodule Ots.Layouts do
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title></title>
       <script src="https://cdn.tailwindcss.com"></script>
-      <script src="https://cdn.jsdelivr.net/npm/phoenix@1.6.10/priv/static/phoenix.min.js">
-      </script>
-      <script
-      src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.18.3/priv/static/phoenix_live_view.min.js"
-      >
-      </script>
+      <script src="https://cdn.jsdelivr.net/npm/phoenix@1.6.10/priv/static/phoenix.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.18.3/priv/static/phoenix_live_view.min.js"></script>
+      <script defer src="https://cdn.jsdelivr.net/npm/alpinejs/dist/cdn.min.js" defer></script>
       <script>
+        /**
+         * Converts an Uint8Array directly to base64, and visa versa.
+         *
+         * https://developer.mozilla.org/en-US/docs/Glossary/Base64#appendix_decode_a_base64_string_to_uint8array_or_arraybuffer
+         */
+
+        /* Array of bytes to Base64 string decoding */
+        function b64ToUint6(nChr) {
+          return nChr > 64 && nChr < 91
+            ? nChr - 65
+            : nChr > 96 && nChr < 123
+            ? nChr - 71
+            : nChr > 47 && nChr < 58
+            ? nChr + 4
+            : nChr === 43
+            ? 62
+            : nChr === 47
+            ? 63
+            : 0;
+        }
+
+        function base64DecToArr(sBase64, nBlocksSize) {
+          const sB64Enc = sBase64.replace(/[^A-Za-z0-9+/]/g, ""); // Remove any non-base64 characters, such as trailing "=", whitespace, and more.
+          const nInLen = sB64Enc.length;
+          const nOutLen = nBlocksSize
+            ? Math.ceil(((nInLen * 3 + 1) >> 2) / nBlocksSize) * nBlocksSize
+            : (nInLen * 3 + 1) >> 2;
+          const taBytes = new Uint8Array(nOutLen);
+
+          let nMod3;
+          let nMod4;
+          let nUint24 = 0;
+          let nOutIdx = 0;
+          for (let nInIdx = 0; nInIdx < nInLen; nInIdx++) {
+            nMod4 = nInIdx & 3;
+            nUint24 |= b64ToUint6(sB64Enc.charCodeAt(nInIdx)) << (6 * (3 - nMod4));
+            if (nMod4 === 3 || nInLen - nInIdx === 1) {
+              nMod3 = 0;
+              while (nMod3 < 3 && nOutIdx < nOutLen) {
+                taBytes[nOutIdx] = (nUint24 >>> ((16 >>> nMod3) & 24)) & 255;
+                nMod3++;
+                nOutIdx++;
+              }
+              nUint24 = 0;
+            }
+          }
+
+          return taBytes;
+        }
+
+        /* Base64 string to array encoding */
+        function uint6ToB64(nUint6) {
+          return nUint6 < 26
+            ? nUint6 + 65
+            : nUint6 < 52
+            ? nUint6 + 71
+            : nUint6 < 62
+            ? nUint6 - 4
+            : nUint6 === 62
+            ? 43
+            : nUint6 === 63
+            ? 47
+            : 65;
+        }
+
+        function base64EncArr(aBytes) {
+          let nMod3 = 2;
+          let sB64Enc = "";
+
+          const nLen = aBytes.length;
+          let nUint24 = 0;
+          for (let nIdx = 0; nIdx < nLen; nIdx++) {
+            nMod3 = nIdx % 3;
+            // To break your base64 into several 80-character lines, add:
+            //   if (nIdx > 0 && ((nIdx * 4) / 3) % 76 === 0) {
+            //      sB64Enc += "\r\n";
+            //    }
+
+            nUint24 |= aBytes[nIdx] << ((16 >>> nMod3) & 24);
+            if (nMod3 === 2 || aBytes.length - nIdx === 1) {
+              sB64Enc += String.fromCodePoint(
+                uint6ToB64((nUint24 >>> 18) & 63),
+                uint6ToB64((nUint24 >>> 12) & 63),
+                uint6ToB64((nUint24 >>> 6) & 63),
+                uint6ToB64(nUint24 & 63)
+              );
+              nUint24 = 0;
+            }
+          }
+          return (
+            sB64Enc.substring(0, sB64Enc.length - 2 + nMod3) +
+            (nMod3 === 2 ? "" : nMod3 === 1 ? "=" : "==")
+          );
+        }
+
+        /**
+         * Converts a string into a Uint8Array containing UTF-8 encoded text.
+         */
+        function getBytes(string) {
+          const textEncoder = new TextEncoder()
+          const encoded = textEncoder.encode(string)
+
+          return encoded
+        }
+
+        /**
+         * Concatinate a list of Uint8Array
+         */
+        function concat(arrays) {
+          // sum of individual array lengths
+          let totalLength = arrays.reduce((acc, value) => acc + value.length, 0);
+
+          let result = new Uint8Array(totalLength);
+
+          if (!arrays.length) return result;
+
+          // for each array - copy it over result
+          // next array is copied right after the previous one
+          let length = 0;
+          for(let array of arrays) {
+            result.set(array, length);
+            length += array.length;
+          }
+
+          return result;
+        }
+
+        async function importKey(rawKey) {
+          return window.crypto.subtle.importKey("raw", rawKey, "AES-GCM", true, [
+            "encrypt",
+            "decrypt",
+          ])
+        }
+
+        async function generateKey(rawKey) {
+          return window.crypto.subtle.generateKey(
+            {
+              name: "AES-GCM",
+              length: 256,
+            },
+            true,
+            ["encrypt", "decrypt"]
+          )
+        }
+
+        async function exportKey(key) {
+          const exported = await window.crypto.subtle.exportKey("raw", key);
+          return new Uint8Array(exported);
+        }
+
+        /**
+         * Encrypts secret message using AES in Galois/Counter Mode.
+         *
+         * See https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/encrypt#aes-gcm.
+         */
+        async function encryptMessage(secret) {
+          const key = await generateKey()
+
+          const encoded = getBytes(secret)
+          const iv = window.crypto.getRandomValues(new Uint8Array(12))
+          const ciphertext = await window.crypto.subtle.encrypt(
+            {
+              name: "AES-GCM",
+              iv,
+            },
+            key,
+            encoded,
+          )
+
+          const sealedSecret = concat([iv, new Uint8Array(ciphertext)])
+          const encryptedBytes = base64EncArr(sealedSecret)
+          const rawKey = await exportKey(key)
+          const base64UrlKey = base64EncArr(rawKey)
+
+          return { key: base64UrlKey, encryptedBytes }
+        }
+
+        async function decryptMessage(key, encryptedBytes) {
+          const ivLength = 12
+          const rawKey = base64DecToArr(key)
+          const secretKey = await importKey(rawKey)
+          const sealedSecret = base64DecToArr(encryptedBytes)
+          const iv = sealedSecret.slice(0, ivLength)
+
+          const ciphertext = sealedSecret.slice(ivLength, sealedSecret.length)
+          const decrypted = await window.crypto.subtle.decrypt(
+            {
+              name: "AES-GCM",
+              iv,
+            },
+            secretKey,
+            ciphertext,
+          )
+          return new TextDecoder().decode(decrypted)
+        }
+
         let Hooks = {}
         Hooks.Decrypt = {
           mounted() {
-            if(window.location.hash) {
-              console.log("key",window.location.hash)
-              this.pushEvent("decrypt", {key: window.location.hash.replace(/^\#/, "")})
+            this.el.dataset.cipher
+            this.el.dataset.secretId
+            if(window.location.hash && secretId && cipher == "aes_256_gcm") { // TODO: Make cipher more generic. Now it is tied to erlang implementation.
+              const liveView = this
+              const key = window.location.hash.replace(/^\#/, "")
+              const secret = this.el.dataset.secret;
+
+              const decrypt = async function() { // This async function is needed to be able to await decryptMessage
+                const decryptedMessage = await decryptMessage(key, secret)
+                window.decryptedMessage = decryptedMessage
+                liveView.pushEvent("decrypted")
+              }
+              decrypt()
             }
           }
         }
-        let liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {hooks: Hooks})
-        liveSocket.connect()
+
+        Hooks.ShowDecrypted = {
+          mounted() {
+            this.el.innerHTML = window.decryptedMessage
+          }
+        }
+
+        Hooks.Encrypt = {
+          message() { return this.el.value },
+          mounted() {
+            const liveView = this
+            this.liveViewEncrypt = async function(e) {
+              const encryptedMessage = await encryptMessage(liveView.message())
+              liveView.pushEvent("encrypted", {encryptedBytes: encryptedMessage.encryptedBytes})
+              window.shareUrlKey = encryptedMessage.key
+            }
+            window.addEventListener('js-encrypt',
+              this.liveViewEncrypt)
+
+          },
+          destroyed() {
+            window.removeEventListener('js-encrypt',
+              this.liveViewEncrypt)
+          }
+        }
+
+        Hooks.UpdateUrl = {
+          mounted() {
+            this.el.innerHTML = this.el.innerHTML.replace("key_placeholder", window.shareUrlKey)
+          }
+        }
+
+        // Wait for defered scripts (like Alpinejs) to load
+        document.addEventListener('DOMContentLoaded', () => {
+          window.Alpine = Alpine
+          Alpine.start()
+          Alpine.store('decryptedSecret', '')
+
+          let liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket,
+            {
+              hooks: Hooks,
+              dom: {
+                onBeforeElUpdated(from, to) {
+                  if (from._x_dataStack) {
+                    window.Alpine.clone(from, to)
+                  }
+                }
+              }
+          })
+          liveSocket.connect()
+        });
       </script>
     </head>
     <body class="dark:bg-slate-800 dark:text-slate-200">
@@ -136,89 +392,126 @@ end
 
 defmodule Ots.CreateLive do
   use Phoenix.LiveView
+  alias Phoenix.LiveView.JS
   alias Ots.Encryption
   alias Ots.Store
 
-  @default_cipher :chacha20_poly1305
+  @default_cipher :aes_256_gcm
 
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, url: nil, loading: false, expiration: 2)}
+    {:ok, assign(socket, url: nil, loading: false, expiration: 2, backend_encryption: false)}
   end
 
   def render(assigns) do
     ~H"""
     <h1 class="text-6xl mb-5 font-bold dark:text-slate-200">One-time secrets</h1>
     <h1 class="text-3xl mb-5 font-bold dark:text-slate-200">Share end-to-end encrypted secrets with others via a one-time URL</h1>
-    <form phx-submit="encrypt">
-      <%= if @url do %>
-      <div class="bg-slate-800 dark:bg-slate-700
-        break-all
-        p-5 mb-1 w-full h-60
-        rounded
-        text-left text-slate-100 text-lg dark:text-slate-200">
-        <div class="mb-5">This is your one-time url:</div>
 
-        <div class="mb-5 font-bold"><%= @url %></div>
-
-        <div class="mb-5">This url will only work one time and expire approximately <%= Timex.format!(@expires_at, "{D}.{M}.{YYYY} {h24}:{m}") %> if not used.</div>
-      </div>
-      <% else %>
-        <textarea name="secret" class="bg-slate-800 dark:bg-slate-700
+    <%= if @backend_encryption do %>
+      <!-- TODO: Handle backend encryption  -->
+    <% else %>
+      <form>
+       <!-- Backend encryption -->
+        <%= if @url do %>
+          <div class="bg-slate-800 dark:bg-slate-700
+            break-all
             p-5 mb-1 w-full h-60
-            rounded shadow
-            text-lg text-slate-100 dark:text-slate-200
-            placeholder:italic placeholder:text-slate-400"
-          spellcheck="false"
-          placeholder="→ Type or paste what you want to securely share here..."
-        ></textarea>
-        <div class="m-5">
-          <label for="default-range" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Secret expiration in <%= @expiration %> hours</label>
-          <input id="expirationRange" name="expiration"
-            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
-            type="range" min="1" max="96" value={@expiration} phx-change="expiration_change">
+            rounded
+            text-left text-slate-100 text-lg dark:text-slate-200">
+            <div class="mb-5">This is your one-time url:</div>
 
-        </div>
-        <button  class="bg-cyan-400 dark:bg-cyan-800 rounded shadow hover:shadow-lg w-full p-3 font-bold text-2xl disabled:bg-cyan-200 disabled:text-slate-500"
-          type="submit"
-          phx-disable-with="Encrypting..">
-          Encrypt and create one-time URL
-        </button>
-      <% end %>
-    </form>
+            <div id="url" class="mb-5 font-bold" phx-hook="UpdateUrl"><%= @url %></div>
+
+            <div class="mb-5">This url will only work one time and expire approximately <%= Timex.format!(@expires_at, "{D}.{M}.{YYYY} {h24}:{m}") %> if not used.</div>
+          </div>
+        <% else %>
+          <textarea id="message" name="secret" phx-hook="Encrypt"
+            class="bg-slate-800 dark:bg-slate-700
+              p-5 mb-1 w-full h-60
+              rounded shadow
+              text-lg text-slate-100 dark:text-slate-200
+              placeholder:italic placeholder:text-slate-400"
+            spellcheck="false"
+            placeholder="→ Type or paste what you want to securely share here..."
+          ></textarea>
+          <div class="m-5">
+            <label for="default-range" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Secret expiration in <%= @expiration %> hours</label>
+            <input id="expirationRange" name="expiration"
+              class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+              type="range" min="1" max="96" value={@expiration} phx-change="expiration_change">
+          </div>
+          <button  class="bg-cyan-400 dark:bg-cyan-800 rounded shadow hover:shadow-lg w-full p-3 font-bold text-2xl disabled:bg-cyan-200 disabled:text-slate-500"
+            type="button"
+            phx-click={JS.dispatch("js-encrypt")}
+            phx-disable-with="Encrypting..">
+            Encrypt and create one-time URL
+          </button>
+        <% end %>
+      </form>
+    <% end %>
     """
   end
 
   def handle_event("encrypt", %{"secret" => secret}, socket) do
-    send(self(), {:encrypt, secret})
+    if socket.assigns.backed_encryption do
+      send(self(), {:encrypt, secret})
+      {:noreply, assign(socket, loading: true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("encrypted", %{"encryptedBytes" => encryptedBytes}, socket) do
+    send(self(), {:store_encrypted, encryptedBytes})
     {:noreply, assign(socket, loading: true)}
   end
 
   def handle_event("expiration_change", %{"expiration" => expiration}, socket) do
-    {:noreply, assign(socket, expiration: expiration)}
+    {:noreply, assign(socket, expiration: String.to_integer(expiration))}
+  end
+
+  def handle_info({:store_encrypted, encryptedBytes}, socket) do
+    dbg(encryptedBytes)
+
+    if not blank?(encryptedBytes) do
+      expires_at =
+        DateTime.now!("Etc/UTC")
+        |> DateTime.add(socket.assigns.expiration, :hour)
+
+      id = Store.insert(encryptedBytes, expires_at |> DateTime.to_unix(), @default_cipher)
+      {:noreply,
+       assign(socket,
+         loading: false,
+         url: one_time_url(id, "key_placeholder"), # TODO: Fix when backend encryption/decryption
+         expires_at: expires_at
+       )}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:encrypt, secret}, socket) do
     if not blank?(secret) do
       {encrypted, key} = Encryption.encrypt(secret)
+
       expires_at =
         DateTime.now!("Etc/UTC")
-          |> DateTime.add(socket.assigns.expiration, :hour)
-
+        |> DateTime.add(socket.assigns.expiration, :hour)
 
       id = Store.insert(encrypted, expires_at |> DateTime.to_unix(), @default_cipher)
-      {:noreply, assign(socket, loading: false, url: one_time_url(id, key), expires_at: expires_at)}
+
+      {:noreply,
+       assign(socket, loading: false, url: one_time_url(id, Base.url_encode64(key)), expires_at: expires_at)}
     else
       {:noreply, socket}
     end
   end
 
   def one_time_url(id, key) do
-    key = Base.url_encode64(key)
     "#{Application.get_env(:ots, :url)}/view/#{id}?ref=web##{key}"
   end
 
   def blank?(val), do: is_nil(val) or val == ""
-
 end
 
 defmodule Ots.ViewLive do
@@ -229,12 +522,29 @@ defmodule Ots.ViewLive do
   def mount(%{"id" => id}, _session, socket) do
     case Store.read(id) do
       [] ->
-        {:ok, assign(socket, id: nil, encrypted_secret: nil, decrypted_secret: nil, chiper: nil, loading: false)}
+        {:ok,
+         assign(socket,
+           id: nil,
+           encrypted_secret: nil,
+           decrypted_secret: nil,
+           chiper: nil,
+           loading: false,
+           decrypted: false
+         )}
 
       rest ->
         {id, encrypted, _expires_at, cipher} = hd(rest)
         if connected?(socket), do: :ets.delete(:secrets, id)
-        {:ok, assign(socket, id: id, encrypted_secret: encrypted, decrypted_secret: nil, cipher: cipher, loading: true)}
+
+        {:ok,
+         assign(socket,
+           id: id,
+           encrypted_secret: encrypted,
+           decrypted_secret: nil,
+           cipher: cipher,
+           loading: true,
+           decrypted: false
+         )}
     end
   end
 
@@ -242,13 +552,14 @@ defmodule Ots.ViewLive do
     ~H"""
     <h1 class="text-6xl mb-5">One-time secrets</h1>
     <p class="text-lg mb-5">Share end-to-end encrypted secrets with others via a one-time URL</p>
-    <div id="secret" class="text-2xl" phx-hook="Decrypt">
+    <div id="secret" class="text-2xl" phx-hook="Decrypt" data-secretId={@id} data-cipher={@chipher} data-secret={@encrypted_secret} x-data>
       <%= if @loading do %>
         Loading..
       <% end %>
-      <%= if @encrypted_secret do %>
-        <h2  class="mb-3">Secret:</h2>
-        <textarea name="secret" class="bg-slate-800 dark:bg-slate-700
+      <%= if @encrypted_secret || @decrypted do %>
+        <h2 class="mb-3">Secret:</h2>
+        <textarea id="decrypted" name="secret" phx-hook="ShowDecrypted" x-html="$store.decryptedSecret"
+          class="bg-slate-800 dark:bg-slate-700
             p-5 mb-1 w-full h-60
             rounded shadow
             font-bold
@@ -276,6 +587,10 @@ defmodule Ots.ViewLive do
     end
   end
 
+  def handle_event("decrypted", _params, socket) do
+    {:noreply, assign(socket, loading: false, decrypted: true)}
+  end
+
   def blank?(val), do: is_nil(val) or val == ""
 end
 
@@ -283,14 +598,16 @@ defmodule Ots.Store do
   @table :secrets
 
   def insert(encrypted_bytes, expires_at, cipher) do
-    id = {
-      encrypted_bytes,
-      expires_at,
-      cipher
-    }
+    id =
+      {
+        encrypted_bytes,
+        expires_at,
+        cipher
+      }
       |> :erlang.phash2()
       |> Integer.to_string()
       |> Base.encode64()
+
     :ets.insert(@table, {id, encrypted_bytes, expires_at, cipher})
     id
   end
@@ -326,6 +643,8 @@ defmodule Ots.Encryption do
   def decode(key) do
     Base.decode64!(key)
   end
+
+
 end
 
 defmodule Ots.ExpirationChecker do
@@ -380,7 +699,7 @@ defmodule Router do
 
   pipeline :browser do
     plug(:accepts, ["html"])
-    plug :put_root_layout, {Ots.Layouts, :root}
+    plug(:put_root_layout, {Ots.Layouts, :root})
   end
 
   pipeline :api do
