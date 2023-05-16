@@ -2,13 +2,12 @@
 
 Inspired by https://github.com/sniptt-official/ots but is not tied to AWS.
 Deployable to any place that can run a container. See instructions below for setting up on fly.io.
-Also supports ChaCha20-Poly1305 (ChaPoly) cipher.
 
-Note: For now encryption for the web client happens on the server. The encryption will be moved to the browser.
+Future support for ChaPoly cipher, but would be encrypted and decrypted by backend.
 
 ## Accompanying cli
 
-Cli that uses ChaPoly cipher: https://github.com/ringvold/neots
+Cli that uses supports AES GMS and ChaPoly cipher: https://github.com/ringvold/neots
 
 ## Ots cli compatibility
 
