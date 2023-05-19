@@ -106,7 +106,7 @@ defmodule Ots.Layouts do
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title></title>
+      <title>One Time Secret</title>
       <script src="https://cdn.tailwindcss.com"></script>
       <script src="https://cdn.jsdelivr.net/npm/phoenix@1.6.10/priv/static/phoenix.min.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.18.3/priv/static/phoenix_live_view.min.js"></script>
@@ -414,7 +414,7 @@ defmodule Ots.CreateLive do
 
             <div id="url" class="mb-5 font-bold" phx-hook="UpdateUrl"><%= @url %></div>
 
-            <div class="mb-5">This url will only work one time and expire approximately <%= Timex.format!(@expires_at, "{D}.{M}.{YYYY} {h24}:{m}") %> UTC if not used.</div>
+            <div class="mb-5">This url will only work one time and expire approximately <%= Timex.format!(@expires_at, "{D}.{0M}.{YYYY} {h24}:{m}") %> UTC if not used.</div>
           </div>
         <% else %>
           <textarea id="message" name="secret" phx-hook="Encrypt"
