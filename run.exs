@@ -110,7 +110,6 @@ defmodule Ots.Layouts do
       <script src="https://cdn.tailwindcss.com"></script>
       <script src="https://cdn.jsdelivr.net/npm/phoenix@1.6.10/priv/static/phoenix.min.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.18.3/priv/static/phoenix_live_view.min.js"></script>
-      <script defer src="https://cdn.jsdelivr.net/npm/alpinejs/dist/cdn.min.js" defer></script>
       <script>
         /**
          * Converts an Uint8Array directly to base64, and visa versa.
@@ -311,8 +310,8 @@ defmodule Ots.Layouts do
         let Hooks = {}
         Hooks.Decrypt = {
           mounted() {
-            this.el.dataset.cipher
-            this.el.dataset.secretId
+            const cipher = this.el.dataset.cipher
+            const secretId = this.el.dataset.secretid
             if(window.location.hash && secretId && cipher == "aes_256_gcm") { // TODO: Make cipher more generic. Now it is tied to erlang implementation.
               const liveView = this
               const key = window.location.hash.replace(/^\#/, "")
@@ -359,25 +358,18 @@ defmodule Ots.Layouts do
           }
         }
 
-        // Wait for defered scripts (like Alpinejs) to load
-        document.addEventListener('DOMContentLoaded', () => {
-          window.Alpine = Alpine
-          Alpine.start()
-          Alpine.store('decryptedSecret', '')
-
-          let liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket,
-            {
-              hooks: Hooks,
-              dom: {
-                onBeforeElUpdated(from, to) {
-                  if (from._x_dataStack) {
-                    window.Alpine.clone(from, to)
-                  }
+        let liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket,
+          {
+            hooks: Hooks,
+            dom: {
+              onBeforeElUpdated(from, to) {
+                if (from._x_dataStack) {
+                  window.Alpine.clone(from, to)
                 }
               }
-          })
-          liveSocket.connect()
-        });
+            }
+        })
+        liveSocket.connect()
       </script>
     </head>
     <body class="dark:bg-slate-800 dark:text-slate-200">
@@ -411,7 +403,7 @@ defmodule Ots.CreateLive do
       <!-- TODO: Handle backend encryption  -->
     <% else %>
       <form>
-       <!-- Backend encryption -->
+       <!-- Frontend encryption -->
         <%= if @url do %>
           <div class="bg-slate-800 dark:bg-slate-700
             break-all
@@ -527,15 +519,16 @@ defmodule Ots.ViewLive do
            id: nil,
            encrypted_secret: nil,
            decrypted_secret: nil,
-           chiper: nil,
+           cipher: nil,
            loading: false,
-           decrypted: false
+           decrypted: false,
+           frontend_decryption: false
          )}
 
       rest ->
         {id, encrypted, _expires_at, cipher} = hd(rest)
         if connected?(socket), do: :ets.delete(:secrets, id)
-
+        dbg cipher
         {:ok,
          assign(socket,
            id: id,
@@ -543,7 +536,8 @@ defmodule Ots.ViewLive do
            decrypted_secret: nil,
            cipher: cipher,
            loading: true,
-           decrypted: false
+           decrypted: false,
+           frontend_decryption: cipher == :aes_256_gcm
          )}
     end
   end
@@ -552,28 +546,49 @@ defmodule Ots.ViewLive do
     ~H"""
     <h1 class="text-6xl mb-5">One-time secrets</h1>
     <p class="text-lg mb-5">Share end-to-end encrypted secrets with others via a one-time URL</p>
-    <div id="secret" class="text-2xl" phx-hook="Decrypt" data-secretId={@id} data-cipher={@chipher} data-secret={@encrypted_secret} x-data>
-      <%= if @loading do %>
-        Loading..
-      <% end %>
-      <%= if @encrypted_secret || @decrypted do %>
-        <h2 class="mb-3">Secret:</h2>
-        <textarea id="decrypted" name="secret" phx-hook="ShowDecrypted" x-html="$store.decryptedSecret"
-          class="bg-slate-800 dark:bg-slate-700
-            p-5 mb-1 w-full h-60
-            rounded shadow
-            font-bold
-            text-lg text-slate-100 dark:text-slate-200"
-          spellcheck="false" disabled
-        ><%= @decrypted_secret %></textarea>
+
+      <%= if @frontend_decryption do %>
+        <div id="secret" class="text-2xl" phx-hook="Decrypt"
+          data-secretId={@id} data-cipher={@cipher} data-secret={@encrypted_secret}>
+          <%= if @loading do %>
+            Loading..
+          <% end %>
+          <%= if @decrypted do %>
+          <h2 class="mb-3">Secret:</h2>
+          <textarea id="decrypted" name="secret" phx-hook="ShowDecrypted"
+            class="bg-slate-800 dark:bg-slate-700 p-5 mb-1 w-full h-60 rounded
+              shadow font-bold text-lg text-slate-100 dark:text-slate-200"
+            spellcheck="false" disabled
+          ></textarea>
+          <% end %>
+        </div>
+
       <% else %>
-        <div class="mb-5">This one-time secret cannot be viewed</div>
+        <div id="secret" class="text-2xl">
+          <%= if @loading do %>
+            Loading..
+          <% end %>
+          <%= if @encrypted_secret do %>
+            <h2 class="mb-3">Secret:</h2>
+            <textarea id="decrypted" name="secret"
+              class="bg-slate-800 dark:bg-slate-700
+                p-5 mb-1 w-full h-60
+                rounded shadow
+                font-bold
+                text-lg text-slate-100 dark:text-slate-200"
+              spellcheck="false" disabled
+            ><%= @decrypted_secret %></textarea>
+          <% else %>
+            <div class="mb-5">This one-time secret cannot be viewed</div>
 
-        <div class="mb-5">This secret may have expired or has been read already</div>
+            <div class="mb-5">This secret may have expired or has been read already</div>
 
-        <div class="mb-5">Reminder: Once secrets have been read once, they are permanently destroyed 💥</div>
+            <div class="mb-5">Reminder: Once secrets have been read once, they are permanently destroyed 💥</div>
+          <% end %>
+        </div>
       <% end %>
-    </div>
+
+
     """
   end
 
