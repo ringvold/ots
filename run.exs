@@ -414,7 +414,7 @@ defmodule Ots.CreateLive do
 
             <div id="url" class="mb-5 font-bold" phx-hook="UpdateUrl"><%= @url %></div>
 
-            <div class="mb-5">This url will only work one time and expire approximately <%= Timex.format!(@expires_at, "{D}.{M}.{YYYY} {h24}:{m}") %> if not used.</div>
+            <div class="mb-5">This url will only work one time and expire approximately <%= Timex.format!(@expires_at, "{D}.{M}.{YYYY} {h24}:{m}") %> UTC if not used.</div>
           </div>
         <% else %>
           <textarea id="message" name="secret" phx-hook="Encrypt"
