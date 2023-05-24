@@ -19,6 +19,7 @@ Application.put_env(
 )
 
 Application.put_env(:phoenix, :json_library, Jason)
+Application.put_env(:phoenix, :filter_parameters, ["encryptedBytes", "key"])
 
 Application.put_env(:ots, Ots.Endpoint,
   url: [host: host],
@@ -31,6 +32,7 @@ Application.put_env(:ots, Ots.Endpoint,
   live_view: [signing_salt: signing_salt],
   secret_key_base: secret_base
 )
+
 
 Mix.install([
   {:plug_cowboy, "~> 2.5"},
@@ -90,6 +92,7 @@ defmodule Ots.ApiController do
       "chacha20_poly1305" -> :chacha20_poly1305
       "aes_256_gcm" -> :aes_256_gcm
       "aes_gcm" -> :aes_256_gcm
+      "aes256gcm" -> :aes_256_gcm
       # Default to AES GCM to support ots cli
       _ -> :aes_256_gcm
     end
@@ -310,6 +313,16 @@ defmodule Ots.Layouts do
         let Hooks = {}
         Hooks.Decrypt = {
           mounted() {
+            if(window.location.hash) { // TODO: Make cipher more generic. Now it is tied to erlang implementation.
+              const liveView = this
+              const key = window.location.hash.replace(/^\#/, "")
+              this.pushEvent("decrypt", {key})
+            }
+          }
+        }
+
+        Hooks.DecryptFrontend = {
+          mounted() {
             const cipher = this.el.dataset.cipher
             const secretId = this.el.dataset.secretid
             if(window.location.hash && secretId && cipher == "aes_256_gcm") { // TODO: Make cipher more generic. Now it is tied to erlang implementation.
@@ -463,8 +476,6 @@ defmodule Ots.CreateLive do
   end
 
   def handle_info({:store_encrypted, encryptedBytes}, socket) do
-    dbg(encryptedBytes)
-
     if not blank?(encryptedBytes) do
       expires_at =
         DateTime.now!("Etc/UTC")
@@ -528,7 +539,6 @@ defmodule Ots.ViewLive do
       rest ->
         {id, encrypted, _expires_at, cipher} = hd(rest)
         if connected?(socket), do: :ets.delete(:secrets, id)
-        dbg cipher
         {:ok,
          assign(socket,
            id: id,
@@ -548,7 +558,7 @@ defmodule Ots.ViewLive do
     <p class="text-lg mb-5">Share end-to-end encrypted secrets with others via a one-time URL</p>
 
       <%= if @frontend_decryption do %>
-        <div id="secret" class="text-2xl" phx-hook="Decrypt"
+        <div id="secret" class="text-2xl" phx-hook="DecryptFrontend"
           data-secretId={@id} data-cipher={@cipher} data-secret={@encrypted_secret}>
           <%= if @loading do %>
             Loading..
@@ -562,9 +572,8 @@ defmodule Ots.ViewLive do
           ></textarea>
           <% end %>
         </div>
-
       <% else %>
-        <div id="secret" class="text-2xl">
+        <div id="secret" class="text-2xl" phx-hook="Decrypt">
           <%= if @loading do %>
             Loading..
           <% end %>
@@ -658,8 +667,6 @@ defmodule Ots.Encryption do
   def decode(key) do
     Base.decode64!(key)
   end
-
-
 end
 
 defmodule Ots.ExpirationChecker do

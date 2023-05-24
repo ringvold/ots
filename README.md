@@ -7,7 +7,7 @@ Future support for ChaPoly cipher, but would be encrypted and decrypted by backe
 
 ## Accompanying cli
 
-Cli that uses supports AES GMS and ChaPoly cipher: https://github.com/ringvold/neots
+Cli that uses supports AES GCM and ChaPoly cipher: https://github.com/ringvold/neots
 
 ## Ots cli compatibility
 
