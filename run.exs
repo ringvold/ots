@@ -22,11 +22,15 @@ Application.put_env(:phoenix, :json_library, Jason)
 Application.put_env(:phoenix, :filter_parameters, ["encryptedBytes", "key"])
 
 Application.put_env(:ots, Ots.Endpoint,
+  adapter: Bandit.PhoenixAdapter,
   url: [host: host],
   http: [
-    ip: {0, 0, 0, 0, 0, 0, 0, 0},
+    ip: :any,
     port: String.to_integer(System.get_env("PORT") || "4000"),
-    transport_options: [socket_opts: [:inet6]]
+  ],
+  render_errors: [
+    formats: [html: Ots.ErrorView, json: Ots.ErrorJSON],
+    layout: false
   ],
   server: true,
   live_view: [signing_salt: signing_salt],
@@ -35,17 +39,17 @@ Application.put_env(:ots, Ots.Endpoint,
 
 
 Mix.install([
-  {:plug_cowboy, "~> 2.5"},
+  {:bandit, "~> 1.0-pre"},
   {:jason, "~> 1.0"},
-  {:phoenix, "~> 1.6.10"},
-  {:phoenix_live_view, "~> 0.18.3"},
+  {:phoenix, "~> 1.7.9"},
+  {:phoenix_live_view, "~> 0.20.1"},
   {:timex, "~> 3.7"}
 ])
 
 :ets.new(:secrets, [:set, :public, :named_table])
 
 defmodule Ots.ErrorView do
-  use Phoenix.View, root: ""
+  use Phoenix.Component
 
   def render(template, _assigns) do
     Phoenix.Controller.status_message_from_template(template)
@@ -53,9 +57,9 @@ defmodule Ots.ErrorView do
 end
 
 defmodule Ots.ErrorJSON do
-  use Phoenix.View, root: ""
+  use Phoenix.Component
 
-  def render(template, _assigns, _) do
+  def render(template, _assigns) do
     %{errors: %{detail: Phoenix.Controller.status_message_from_template(template)}}
   end
 end

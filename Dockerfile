@@ -12,9 +12,9 @@
 #   - https://pkgs.org/ - resource for finding needed packages
 #   - Ex: hexpm/elixir:1.13.4-erlang-24.0.1-debian-bullseye-20210902-slim
 #
-ARG ELIXIR_VERSION=1.14.4
-ARG OTP_VERSION=25.3
-ARG ALPINE_VERSION=3.18.0
+ARG ELIXIR_VERSION=1.15.7
+ARG OTP_VERSION=26.1.2
+ARG ALPINE_VERSION=3.18.4
 
 ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-alpine-${ALPINE_VERSION}"
 ARG RUNNER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-alpine-${ALPINE_VERSION}"
