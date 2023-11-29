@@ -39,7 +39,7 @@ Application.put_env(:ots, Ots.Endpoint,
 
 
 Mix.install([
-  {:bandit, "~> 1.0-pre"},
+  {:bandit, "~> 1.1"},
   {:jason, "~> 1.0"},
   {:phoenix, "~> 1.7.9"},
   {:phoenix_live_view, "~> 0.20.1"},
@@ -115,8 +115,8 @@ defmodule Ots.Layouts do
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>One Time Secret</title>
       <script src="https://cdn.tailwindcss.com"></script>
-      <script src="https://cdn.jsdelivr.net/npm/phoenix@1.6.10/priv/static/phoenix.min.js"></script>
-      <script src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.18.3/priv/static/phoenix_live_view.min.js"></script>
+      <script src="https://cdn.staticdelivr.com/npm/phoenix@1.7.10/priv/static/phoenix.min.js"></script>
+      <script src="https://cdn.staticdelivr.com/npm/phoenix_live_view@0.20.1/priv/static/phoenix_live_view.min.js"></script>
       <script>
         /**
          * Converts an Uint8Array directly to base64, and visa versa.
