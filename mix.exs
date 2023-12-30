@@ -50,7 +50,7 @@ defmodule Ots.MixProject do
       {:bandit, ">= 0.0.0"},
       {:timex, "~> 3.7"},
       {:libcluster, "~> 3.3"},
-      {:groot, "~> 0.1"},
+      {:groot, path: "./vendor/groot"},
     ]
   end
 
