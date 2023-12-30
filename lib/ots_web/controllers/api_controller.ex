@@ -5,7 +5,7 @@ defmodule OtsWeb.ApiController do
 
   import Plug.Conn
   import Jason.Helpers
-  alias Ots.Store
+  alias Ots.Repo
 
   def index(conn, params) do
     encrypted_bytes = params["encryptedBytes"]
@@ -16,7 +16,7 @@ defmodule OtsWeb.ApiController do
       |> DateTime.add(params["expiresIn"], :second)
       |> DateTime.to_unix()
 
-    id = Store.insert(encrypted_bytes, expires_at, cipher)
+    id = Repo.insert(encrypted_bytes, expires_at, cipher)
 
     conn
     |> put_status(200)

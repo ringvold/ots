@@ -1,11 +1,11 @@
 defmodule OtsWeb.ViewLive do
   use Phoenix.LiveView
   alias Ots.Encryption
-  alias Ots.Store
+  alias Ots.Repo
 
   def mount(%{"id" => id}, _session, socket) do
-    case Store.read(id) do
-      [] ->
+    case Repo.read(id) do
+      nil ->
         {:ok,
          assign(socket,
            id: nil,
@@ -17,9 +17,9 @@ defmodule OtsWeb.ViewLive do
            frontend_decryption: false
          )}
 
-      rest ->
-        {id, encrypted, _expires_at, cipher} = hd(rest)
-        if connected?(socket), do: :ets.delete(:secrets, id)
+      value ->
+        {id, encrypted, _expires_at, cipher} = value
+        if connected?(socket), do: Repo.delete(id)
 
         {:ok,
          assign(socket,

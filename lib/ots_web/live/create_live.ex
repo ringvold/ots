@@ -2,7 +2,7 @@ defmodule OtsWeb.CreateLive do
   use Phoenix.LiveView
   alias Phoenix.LiveView.JS
   alias Ots.Encryption
-  alias Ots.Store
+  alias Ots.Repo
 
   @default_cipher :aes_256_gcm
 
@@ -108,7 +108,7 @@ defmodule OtsWeb.CreateLive do
         DateTime.now!("Etc/UTC")
         |> DateTime.add(socket.assigns.expiration, :hour)
 
-      id = Store.insert(encryptedBytes, expires_at |> DateTime.to_unix(), @default_cipher)
+      id = Repo.insert(encryptedBytes, expires_at |> DateTime.to_unix(), @default_cipher)
 
       {:noreply,
        assign(socket,
@@ -130,7 +130,7 @@ defmodule OtsWeb.CreateLive do
         DateTime.now!("Etc/UTC")
         |> DateTime.add(socket.assigns.expiration, :hour)
 
-      id = Store.insert(encrypted, expires_at |> DateTime.to_unix(), @default_cipher)
+      id = Repo.insert(encrypted, expires_at |> DateTime.to_unix(), @default_cipher)
 
       {:noreply,
        assign(socket,

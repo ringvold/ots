@@ -49,6 +49,8 @@ defmodule Ots.MixProject do
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, ">= 0.0.0"},
       {:timex, "~> 3.7"},
+      {:libcluster, "~> 3.3"},
+      {:groot, "~> 0.1"},
     ]
   end
 
