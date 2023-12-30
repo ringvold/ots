@@ -55,7 +55,7 @@ config :ots, OtsWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :ots,
   dev_routes: true,
-  expiration_check_interval: 10000
+  expiration_check_interval: 20000
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
