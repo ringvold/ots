@@ -35,6 +35,7 @@ ENV DATABASE_URL=$DATABASE_URL
 # files don't change, then we don't keep re-fetching and rebuilding the deps.
 COPY mix.exs mix.lock ./
 COPY config config
+COPY vendor vendor
 
 RUN mix deps.get --only prod && \
     mix deps.compile

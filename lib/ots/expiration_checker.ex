@@ -16,11 +16,9 @@ defmodule Ots.ExpirationChecker do
   end
 
   def handle_info(:work, state) do
-    IO.puts("Starting expiry check...")
     Logger.info("Starting expiry check...")
 
     Repo.all()
-    |> dbg
     |> Enum.each(fn {_id, secret} ->
       case secret do
         {id, _, expire, _cipher} ->

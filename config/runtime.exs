@@ -40,7 +40,15 @@ if config_env() == :prod do
   host = System.get_env("PHX_HOST") || "#{app_name}.fly.dev"
   port = String.to_integer(System.get_env("PORT") || "4000")
 
-  config :ots, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  url = if app = System.get_env("FLY_APP_NAME") do
+      "https://" <> app <> ".fly.dev"
+    else
+      "http://localhost:4000"
+    end
+
+  config :ots,
+    dns_cluster_query: System.get_env("DNS_CLUSTER_QUERY"),
+    url: url
 
   config :ots, OtsWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
