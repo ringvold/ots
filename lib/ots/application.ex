@@ -22,7 +22,7 @@ defmodule Ots.Application do
       {true, {Finch, name: Ots.Finch}},
       # Start a worker by calling: Ots.Worker.start_link(arg)
       # {Ots.Worker, arg},
-      {false, Ots.ExpirationChecker},
+      {true, {Ots.ExpirationChecker, interval: Application.get_env(:ots, :expiration_check_interval) || 180_000}},
       # Start to serve requests, typically the last entry
       {true, OtsWeb.Endpoint}
     ]

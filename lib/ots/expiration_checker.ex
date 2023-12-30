@@ -1,43 +1,56 @@
 defmodule Ots.ExpirationChecker do
   use GenServer
+  require Logger
+  alias Ots.Repo
 
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, %{})
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts)
   end
 
   def init(state) do
+    Logger.info("Starting expiry checker...", state)
+    interval = get_interval(state)
     # Schedule work to be performed at some point
-    schedule_work()
+    schedule_work(interval)
     {:ok, state}
   end
 
   def handle_info(:work, state) do
     IO.puts("Starting expiry check...")
+    Logger.info("Starting expiry check...")
 
-    :ets.foldl(
-      fn {id, _, expire, _cipher}, _acc ->
-        now = DateTime.now!("Etc/UTC") |> DateTime.to_unix()
+    Repo.all()
+    |> dbg
+    |> Enum.each(fn {_id, secret} ->
+      case secret do
+        {id, _, expire, _cipher} ->
+          now = DateTime.now!("Etc/UTC") |> DateTime.to_unix()
 
-        if now > expire do
-          IO.puts("Secret #{id} expired. Deleting..")
-          :ets.delete(:secrets, id)
-        end
+          if now > expire do
+            Logger.info("Secret #{id} expired. Deleting..")
+            Repo.delete(id)
+          end
 
-        :ok
-      end,
-      nil,
-      :secrets
-    )
+          :ok
 
-    IO.puts("Expiry check finished")
+        nil ->
+          :ok
+      end
+    end)
+
+    Logger.info("Expiry check finished")
 
     # Reschedule once more
-    schedule_work()
+    schedule_work(get_interval(state))
     {:noreply, state}
   end
 
-  defp schedule_work() do
+  defp schedule_work(interval) do
     # In 3 minutes
-    Process.send_after(self(), :work, 3 * 60 * 1000)
+    Process.send_after(self(), :work, interval)
+  end
+
+  defp get_interval(state) do
+    Keyword.get(state, :interval, 180_000)
   end
 end

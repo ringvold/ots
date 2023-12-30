@@ -13,6 +13,7 @@ config :ots,
     else
       "http://localhost:4000"
     end),
+  expiration_check_interval: System.get_env("EXPIRATION_CHECK_INTERVAL") || 180_000,
   generators: [timestamp_type: :utc_datetime]
 
 # Configures the endpoint

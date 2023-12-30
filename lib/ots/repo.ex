@@ -1,5 +1,4 @@
 defmodule Ots.Repo do
-  @table :secrets
 
   def insert(encrypted_bytes, expires_at, cipher) do
     id = generate_id(encrypted_bytes, expires_at, cipher)
@@ -17,6 +16,10 @@ defmodule Ots.Repo do
 
   def read(id) do
     Groot.get(id)
+  end
+
+  def all() do
+     Groot.all()
   end
 
   defp generate_id(encrypted_bytes, expires_at, cipher) do
