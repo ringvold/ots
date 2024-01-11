@@ -12,9 +12,13 @@ kill_timeout = "5s"
   auto_rollback = true
 
 [deploy]
+  strategy = "bluegreen"
 
 [env]
   PORT = "4000"
+  DNS_CLUSTER_QUERY = "ots.internal"
+  RELEASE_COOKIE = "mycookie"
+  PHX_SERVER = "true"
 
 [[services]]
   protocol = "tcp"
@@ -36,7 +40,7 @@ kill_timeout = "5s"
     soft_limit = 2000
 
   [[services.tcp_checks]]
-    interval = "15s"
+    interval = "10s"
     timeout = "2s"
     grace_period = "20s"
     restart_limit = 0

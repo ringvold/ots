@@ -1,28 +1,19 @@
-# Find eligible builder and runner images on Docker Hub. We use Ubuntu/Debian instead of
-# Alpine to avoid DNS resolution issues in production.
-#
-# https://hub.docker.com/r/hexpm/elixir/tags?page=1&name=ubuntu
-# https://hub.docker.com/_/ubuntu?tab=tags
-#
-#
-# This file is based on these images:
-#
-#   - https://hub.docker.com/r/hexpm/elixir/tags - for the build image
-#   - https://hub.docker.com/_/debian?tab=tags&page=1&name=bullseye-20210902-slim - for the release image
-#   - https://pkgs.org/ - resource for finding needed packages
-#   - Ex: hexpm/elixir:1.13.4-erlang-24.0.1-debian-bullseye-20210902-slim
-#
-ARG ELIXIR_VERSION=1.15.7
-ARG OTP_VERSION=26.1.2
+ARG ELIXIR_VERSION=1.16.0
+ARG OTP_VERSION=26.2.1
 ARG ALPINE_VERSION=3.18.4
 
 ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-alpine-${ALPINE_VERSION}"
-ARG RUNNER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-alpine-${ALPINE_VERSION}"
-# ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
+# ARG RUNNER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-alpine-${ALPINE_VERSION}"
+ARG RUNNER_IMAGE="alpine:${ALPINE_VERSION}"
 
-FROM ${BUILDER_IMAGE} as builder
+
+###
+### Fist Stage - Building the Release
+###
+FROM ${BUILDER_IMAGE} AS build
 
 # install build dependencies
+# git needed for getting ueberauth_steam
 RUN apk add --no-cache build-base git
 
 # prepare build dir
@@ -35,36 +26,58 @@ ENV HEX_HTTP_TIMEOUT=20
 RUN mix local.hex --force && \
     mix local.rebar --force
 
-# set build ENV
-ENV MIX_ENV="prod"
-ENV EXS_DRY_RUN="true"
-ENV MIX_INSTALL_DIR="/app/.mix"
+# set build ENV as prod
+ENV MIX_ENV=prod
+ENV SECRET_KEY_BASE=nokey
+ENV DATABASE_URL=$DATABASE_URL
 
-# install mix dependencies
-COPY run.exs ./
-RUN elixir ./run.exs
+# Copy over the mix.exs and mix.lock files to load the dependencies. If those
+# files don't change, then we don't keep re-fetching and rebuilding the deps.
+COPY mix.exs mix.lock ./
+COPY config config
+COPY vendor vendor
 
-# start a new build stage so that the final image will only contain
-# the compiled release and other runtime necessities
-FROM ${RUNNER_IMAGE}
+RUN mix deps.get --only prod && \
+    mix deps.compile
 
-# install build dependencies
+COPY priv priv
+COPY assets assets
+
+# NOTE: If using TailwindCSS, it uses a special "purge" step and that requires
+# the code in `lib` to see what is being used. Uncomment that here before
+# running the npm deploy script if that's the case.
+COPY lib lib
+
+# build assets
+RUN mix assets.deploy
+RUN mix phx.digest
+
+# copy source here if not using TailwindCSS
+COPY lib lib
+
+# compile and build release
+COPY rel rel
+RUN mix do compile, release
+
+###
+### Second Stage - Setup the Runtime Environment
+###
+
+# prepare release docker image
+FROM ${RUNNER_IMAGE} AS app
 RUN apk add --no-cache libstdc++ openssl ncurses-libs
 
-WORKDIR "/app"
+WORKDIR /app
 
-# set runner ENV
-ENV MIX_ENV="prod"
-ENV MIX_INSTALL_DIR="/app/.mix"
-ENV SHELL=/bin/bash
-ENV ERL_AFLAGS "-proto_dist inet6_tcp"
+RUN chown nobody:nobody /app
 
-# Only copy the final release from the build stage
-COPY --from=builder --chown=nobody:root /app/.mix/ ./.mix
-COPY --from=builder --chown=nobody:root /app/run.exs ./
+USER nobody:nobody
 
-RUN mix local.hex --force && \
-    mix local.rebar --force
+COPY --from=build --chown=nobody:nobody /app/_build/prod/rel/ots ./
 
-CMD ["elixir", "/app/run.exs"]
+ENV HOME=/app
+ENV MIX_ENV=prod
+ENV SECRET_KEY_BASE=nokey
+ENV PORT=4000
 
+CMD ["bin/ots", "start"]
