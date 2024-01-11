@@ -1,5 +1,6 @@
 defmodule OtsWeb.CreateLive do
-  use Phoenix.LiveView
+  use OtsWeb, :live_view
+
   alias Phoenix.LiveView.JS
   alias Ots.Encryption
   alias Ots.Repo
@@ -7,7 +8,25 @@ defmodule OtsWeb.CreateLive do
   @default_cipher :aes_256_gcm
 
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, url: nil, loading: false, expiration: 2, backend_encryption: false)}
+    {:ok,
+     assign(socket,
+       url: nil,
+       loading: false,
+       expiration: 5,
+       expiration_unit: Application.get_env(:ots, :expiration_unit),
+       timezone_offset: 0
+     )}
+  end
+
+  def expiration_unit_to_plural(unit) do
+    case unit do
+      :minute -> :minutes
+      :hour -> :hours
+      :day -> :days
+      :week -> :weeks
+      :month -> :months
+      :year -> :years
+    end
   end
 
   def render(assigns) do
@@ -17,70 +36,88 @@ defmodule OtsWeb.CreateLive do
       Share end-to-end encrypted secrets with others via a one-time URL
     </h1>
 
-    <%= if @backend_encryption do %>
-      <!-- TODO: Handle backend encryption  -->
-    <% else %>
-      <form>
-        <!-- Frontend encryption -->
-        <%= if @url do %>
-          <div class="bg-slate-800 dark:bg-slate-700
+    <form>
+      <%= if @url do %>
+        <div class="bg-slate-800 dark:bg-slate-700
             break-all
             p-5 mb-1 w-full h-60
             rounded
             text-left text-slate-100 text-lg dark:text-slate-200">
-            <div class="mb-5">This is your one-time url:</div>
+          <div class="mb-5">This is your one-time url:</div>
 
-            <div id="url" class="mb-5 font-bold" phx-hook="UpdateUrl"><%= @url %></div>
+          <div id="url" class="mb-5 font-bold" phx-hook="UpdateUrl"><%= @url %></div>
 
-            <div class="mb-5">
-              This url will only work one time and expire approximately <%= Timex.format!(
-                @expires_at,
-                "{D}.{0M}.{YYYY} {h24}:{m}"
-              ) %> UTC if not used.
-            </div>
+          <div class="mb-5">
+            This url will only work one time and expire in <%= @expiration %> <%= expiration_unit_to_plural(
+              @expiration_unit
+            ) %> if not used, at approximately:
+            <date datetime={Timex.format!(@expires_at, "{ISO:Basic}")}>
+              <%= Timex.format!(
+                Timex.shift(@expires_at, [
+                  {expiration_unit_to_plural(@expiration_unit), @timezone_offset}
+                ]),
+                "{0D}.{0M}.{YYYY} {h24}:{m}"
+              ) %>
+            </date>.
           </div>
-        <% else %>
-          <textarea
-            id="message"
-            name="secret"
-            phx-hook="Encrypt"
-            class="bg-slate-800 dark:bg-slate-700
+        </div>
+        <button
+          id="copyToClipboard"
+          class="bg-cyan-400 mt-5 dark:bg-cyan-800 rounded shadow hover:shadow-lg w-full p-3 font-bold text-2xl disabled:bg-cyan-200 disabled:text-slate-500"
+          type="button"
+          phx-hook="CopyToClipboard"
+        >
+          Copy URL to clipboard
+        </button>
+
+        <.link
+          class="mt-5 inline-block border rounded shadow hover:shadow-lg p-3 font-bold text-2xl"
+          type="button"
+          href={~p"/"}
+        >
+          Create a new secret
+        </.link>
+      <% else %>
+        <textarea
+          id="message"
+          name="secret"
+          phx-hook="Encrypt"
+          class="bg-slate-800 dark:bg-slate-700
               p-5 mb-1 w-full h-60
               rounded shadow
               text-lg text-slate-100 dark:text-slate-200
               placeholder:italic placeholder:text-slate-400"
-            spellcheck="false"
-            placeholder="→ Type or paste what you want to securely share here..."
-          ></textarea>
-          <div class="m-5">
-            <label
-              for="default-range"
-              class="block mb-2 text-sm font-medium text-gray-900 dark:text-white"
-            >
-              Secret expiration in <%= @expiration %> hours
-            </label>
-            <input
-              id="expirationRange"
-              name="expiration"
-              class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
-              type="range"
-              min="1"
-              max="96"
-              value={@expiration}
-              phx-change="expiration_change"
-            />
-          </div>
-          <button
-            class="bg-cyan-400 dark:bg-cyan-800 rounded shadow hover:shadow-lg w-full p-3 font-bold text-2xl disabled:bg-cyan-200 disabled:text-slate-500"
-            type="button"
-            phx-click={JS.dispatch("js-encrypt")}
-            phx-disable-with="Encrypting.."
+          spellcheck="false"
+          placeholder="→ Type or paste what you want to securely share here..."
+        ></textarea>
+        <div class="m-5">
+          <label
+            for="default-range"
+            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white"
           >
-            Encrypt and create one-time URL
-          </button>
-        <% end %>
-      </form>
-    <% end %>
+            Secret expiration in <%= @expiration %> <%= @expiration_unit %>
+          </label>
+          <input
+            id="expirationRange"
+            name="expiration"
+            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+            type="range"
+            min="1"
+            max="60"
+            value={@expiration}
+            phx-change="expiration_change"
+          />
+        </div>
+        <button
+          class="bg-cyan-400 dark:bg-cyan-800 rounded shadow hover:shadow-lg w-full p-3 font-bold text-2xl disabled:bg-cyan-200 disabled:text-slate-500"
+          type="button"
+          phx-click={JS.dispatch("js-encrypt")}
+          phx-disable-with="Encrypting.."
+        >
+          Encrypt and create one-time URL
+        </button>
+      <% end %>
+    </form>
     """
   end
 
@@ -106,7 +143,7 @@ defmodule OtsWeb.CreateLive do
     if not blank?(encryptedBytes) do
       expires_at =
         DateTime.now!("Etc/UTC")
-        |> DateTime.add(socket.assigns.expiration, :hour)
+        |> DateTime.add(socket.assigns.expiration, socket.assigns.expiration_unit)
 
       id = Repo.insert(encryptedBytes, expires_at |> DateTime.to_unix(), @default_cipher)
 

@@ -14,7 +14,8 @@ config :ots,
       "http://localhost:4000"
     end),
   expiration_check_interval: System.get_env("EXPIRATION_CHECK_INTERVAL") || 180_000,
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  expiration_unit: :hour
 
 # Configures the endpoint
 config :ots, OtsWeb.Endpoint,

@@ -34,7 +34,7 @@ window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 let Hooks = {}
 Hooks.Decrypt = {
   mounted() {
-    if (window.location.hash) { // TODO: Make cipher more generic. Now it is tied to erlang implementation.
+    if (window.location.hash) {
       const liveView = this
       const key = window.location.hash.replace(/^\#/, "")
       this.pushEvent("decrypt", { key })
@@ -46,7 +46,7 @@ Hooks.DecryptFrontend = {
   mounted() {
     const cipher = this.el.dataset.cipher
     const secretId = this.el.dataset.secretid
-    if (window.location.hash && secretId && cipher == "aes_256_gcm") { // TODO: Make cipher more generic. Now it is tied to erlang implementation.
+    if (window.location.hash && secretId && cipher == "aes_256_gcm") {
       const liveView = this
       const key = window.location.hash.replace(/^\#/, "")
       const secret = this.el.dataset.secret;
@@ -92,10 +92,26 @@ Hooks.UpdateUrl = {
   }
 }
 
+Hooks.CopyToClipboard = {
+  mounted() {
+    this.el.addEventListener("click", this.copyToClipboard)
+  },
+  destroyed() {
+    this.el.removeEventListener("click", this.copyToClipboard)
+  },
+  copyToClipboard() {
+    const copyText = document.getElementById("url");
+    navigator.clipboard.writeText(copyText.innerHTML);
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   hooks: Hooks,
-  params: { _csrf_token: csrfToken }
+  params: {
+    _csrf_token: csrfToken,
+    timezone_offset: -(new Date().getTimezoneOffset() / 60),
+  }
 })
 
 // connect if there are any LiveViews on the page
